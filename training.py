@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import torch
 from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
@@ -51,21 +52,35 @@ def train_llama_classifier(
     # Tokenize the dataset
     tokenized_datasets = dataset.map(tokenize_function, batched=True)
 
+    deepspeed_config = {
+        "fp16": {"enabled": True},
+        "zero_optimization": {
+            "stage": 2,
+            "allgather_partitions": True,
+            "allgather_bucket_size": 2e8,
+            "overlap_comm": True,
+            "contiguous_gradients": True,
+            "cpu_offload": True,
+        },
+    }
     # Define training arguments
     training_args = TrainingArguments(
         output_dir=output_dir,
         learning_rate=learning_rate,
-        per_device_train_batch_size=batch_size,
-        per_device_eval_batch_size=batch_size,
+        per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,
         num_train_epochs=num_epochs,
         weight_decay=0.01,
         evaluation_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
-        gradient_accumulation_steps=8,
+        gradient_accumulation_steps=16,
         fp16=True,
         optim="adamw_torch",
         gradient_checkpointing=True,
+        deepspeed=deepspeed_config,
+        dataloader_num_workers=4,
+        ddp_find_unused_parameters=False,
     )
 
     # Create Trainer instance
@@ -78,7 +93,7 @@ def train_llama_classifier(
         data_collator=DataCollatorWithPadding(tokenizer=tokenizer),
         compute_metrics=compute_metrics,
     )
-
+    torch.cuda.empty_cache()
     # Train the model
     trainer.train()
 
