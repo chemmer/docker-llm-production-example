@@ -53,16 +53,15 @@ def train_llama_classifier(
     tokenized_datasets = dataset.map(tokenize_function, batched=True)
 
     deepspeed_config = {
-        "train_micro_batch_size_per_gpu": 1,
-        "gradient_accumulation_steps": 16,
-        "fp16": {"enabled": True},
+        "train_micro_batch_size_per_gpu": "auto",
+        "gradient_accumulation_steps": "auto",
+        "fp16": {"enabled": "auto"},
         "zero_optimization": {
             "stage": 2,
             "allgather_partitions": True,
             "allgather_bucket_size": 2e8,
             "overlap_comm": True,
             "contiguous_gradients": True,
-            "cpu_offload": True,
         },
     }
     # Define training arguments
@@ -77,6 +76,7 @@ def train_llama_classifier(
         save_strategy="epoch",
         load_best_model_at_end=True,
         fp16=True,
+        gradient_accumulation_steps=16,
         optim="adamw_torch",
         gradient_checkpointing=True,
         deepspeed=deepspeed_config,
