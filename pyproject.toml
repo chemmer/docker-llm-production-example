@@ -6,7 +6,7 @@ authors = ["Camilla <camilla.hemmer@scailex.group>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.10"
 testcontainers = "^4.7.2"
 torch = "^2.4.0"
 langchain-community = "^0.2.10"

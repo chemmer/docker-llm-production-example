@@ -22,7 +22,7 @@ def compute_metrics(pred):
 
 
 def train_llama_classifier(
-    model_name="openlm-research/open_llama_3b",  # "meta-llama/Meta-Llama-3.1-8B",
+    model_name="meta-llama/Meta-Llama-3.1-8B",
     dataset_name="imdb",  # Example dataset, replace with your own
     output_dir="./llama2_classifier_output",
     num_labels=2,
@@ -44,7 +44,9 @@ def train_llama_classifier(
         model.config.pad_token_id = model.config.eos_token_id
 
     def tokenize_function(examples):
-        return tokenizer(examples["text"], padding="max_length", truncation=True)
+        return tokenizer(
+            examples["text"], padding="max_length", truncation=True, max_length=256
+        )
 
     # Tokenize the dataset
     tokenized_datasets = dataset.map(tokenize_function, batched=True)
@@ -60,7 +62,7 @@ def train_llama_classifier(
         evaluation_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
-        gradient_accumulation_steps=4,
+        gradient_accumulation_steps=8,
         fp16=True,
         optim="adamw_torch",
         gradient_checkpointing=True,
