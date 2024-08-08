@@ -7,74 +7,37 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    HfArgumentParser,
     Trainer,
     TrainingArguments,
     DataCollatorForLanguageModeling,
-    EarlyStoppingCallback,
-    pipeline,
-    logging,
     set_seed,
 )
-
-import bitsandbytes as bnb
 from peft import (
     LoraConfig,
     get_peft_model,
     prepare_model_for_kbit_training,
-    PeftModel,
     AutoPeftModelForCausalLM,
 )
-from trl import SFTTrainer
+import bitsandbytes as bnb
 
 
-def create_bnb_config(
-    load_in_4bit, bnb_4bit_use_double_quant, bnb_4bit_quant_type, bnb_4bit_compute_dtype
-):
-    """
-    Configures model quantization method using bitsandbytes to speed up training and inference
-
-    :param load_in_4bit: Load model in 4-bit precision mode
-    :param bnb_4bit_use_double_quant: Nested quantization for 4-bit model
-    :param bnb_4bit_quant_type: Quantization data type for 4-bit model
-    :param bnb_4bit_compute_dtype: Computation data type for 4-bit model
-    """
-
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=load_in_4bit,
-        bnb_4bit_use_double_quant=bnb_4bit_use_double_quant,
-        bnb_4bit_quant_type=bnb_4bit_quant_type,
-        bnb_4bit_compute_dtype=bnb_4bit_compute_dtype,
+def create_bnb_config():
+    return BitsAndBytesConfig(
+        load_in_8bit=True,  # Change to 8-bit quantization
+        bnb_8bit_use_double_quant=True,
+        bnb_8bit_quant_type="nf8",
+        bnb_8bit_compute_dtype=torch.float16,
     )
-
-    return bnb_config
 
 
 def load_model(model_name, bnb_config):
-    """
-    Loads model and model tokenizer
-
-    :param model_name: Hugging Face model name
-    :param bnb_config: Bitsandbytes configuration
-    """
-
-    # Get number of GPU device and set maximum memory
-    n_gpus = torch.cuda.device_count()
-    max_memory = f"{40960}MB"
-
-    # Load model
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         quantization_config=bnb_config,
-        device_map="auto",  # dispatch the model efficiently on the available resources
+        device_map="auto",
     )
-
-    # Load model tokenizer with the user authentication token
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=True)
-
-    # Set padding token as EOS token
     tokenizer.pad_token = tokenizer.eos_token
-
     return model, tokenizer
 
 
@@ -83,7 +46,7 @@ def load_model(model_name, bnb_config):
 ################################################################################
 
 # The pre-trained model from the Hugging Face Hub to load and fine-tune
-model_name = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+model_name = "meta-llama/Meta-Llama-3.1-8B"
 
 ################################################################################
 # bitsandbytes parameters
@@ -303,93 +266,41 @@ def print_trainable_parameters(model, use_4bit=False):
     )
 
 
-def fine_tune(
-    model,
-    tokenizer,
-    dataset,
-    lora_r,
-    lora_alpha,
-    lora_dropout,
-    bias,
-    task_type,
-    per_device_train_batch_size,
-    gradient_accumulation_steps,
-    warmup_steps,
-    max_steps,
-    learning_rate,
-    fp16,
-    logging_steps,
-    output_dir,
-    optim,
-):
-    """
-    Prepares and fine-tune the pre-trained model.
-
-    :param model: Pre-trained Hugging Face model
-    :param tokenizer: Model tokenizer
-    :param dataset: Preprocessed training dataset
-    """
-
-    # Enable gradient checkpointing to reduce memory usage during fine-tuning
+def fine_tune(model, tokenizer, dataset):
     model.gradient_checkpointing_enable()
-
-    # Prepare the model for training
     model = prepare_model_for_kbit_training(model)
 
-    # Get LoRA module names
-    target_modules = find_all_linear_names(model)
-
-    # Create PEFT configuration for these modules and wrap the model to PEFT
-    peft_config = create_peft_config(
-        lora_r, lora_alpha, target_modules, lora_dropout, bias, task_type
+    peft_config = LoraConfig(
+        r=64,  # Increase LoRA rank for better performance
+        lora_alpha=128,
+        target_modules=find_all_linear_names(model),
+        lora_dropout=0.05,
+        bias="none",
+        task_type="CAUSAL_LM",
     )
     model = get_peft_model(model, peft_config)
 
-    # Print information about the percentage of trainable parameters
-    print_trainable_parameters(model)
-
-    # Training parameters
     trainer = Trainer(
         model=model,
         train_dataset=dataset,
         args=TrainingArguments(
-            per_device_train_batch_size=per_device_train_batch_size,
-            gradient_accumulation_steps=gradient_accumulation_steps,
-            warmup_steps=warmup_steps,
-            max_steps=max_steps,
-            learning_rate=learning_rate,
-            fp16=fp16,
-            logging_steps=logging_steps,
-            output_dir=output_dir,
-            optim=optim,
+            per_device_train_batch_size=4,  # Increase batch size
+            gradient_accumulation_steps=8,
+            warmup_steps=100,
+            max_steps=1000,  # Increase number of training steps
+            learning_rate=1e-4,
+            fp16=True,
+            logging_steps=10,
+            output_dir="./results",
+            optim="adamw_8bit",
         ),
         data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
     )
 
     model.config.use_cache = False
+    trainer.train()
 
-    do_train = True
-
-    # Launch training and log metrics
-    print("Training...")
-
-    if do_train:
-        train_result = trainer.train()
-        metrics = train_result.metrics
-        trainer.log_metrics("train", metrics)
-        trainer.save_metrics("train", metrics)
-        trainer.save_state()
-        print(metrics)
-
-    # Save model
-    print("Saving last checkpoint of the model...")
-    os.makedirs(output_dir, exist_ok=True)
-    trainer.model.save_pretrained(output_dir)
-
-    # Free memory for merging weights
-    del model
-    del trainer
-    torch.cuda.empty_cache()
+    return trainer
 
 
 ################################################################################
@@ -442,22 +353,30 @@ fp16 = True
 # Log every X updates steps
 logging_steps = 1
 
-fine_tune(
-    model,
-    tokenizer,
-    preprocessed_dataset,
-    lora_r,
-    lora_alpha,
-    lora_dropout,
-    bias,
-    task_type,
-    per_device_train_batch_size,
-    gradient_accumulation_steps,
-    warmup_steps,
-    max_steps,
-    learning_rate,
-    fp16,
-    logging_steps,
-    output_dir,
-    optim,
+# Main execution
+model_name = "meta-llama/Meta-Llama-3.1-8B"
+bnb_config = create_bnb_config()
+model, tokenizer = load_model(model_name, bnb_config)
+
+dataset = load_dataset(
+    "csv", data_files="banking_instruction_dataset.csv", split="train"
 )
+preprocessed_dataset = preprocess_dataset(tokenizer, get_max_length(model), 33, dataset)
+
+trainer = fine_tune(model, tokenizer, preprocessed_dataset)
+
+# Load fine-tuned weights
+model = AutoPeftModelForCausalLM.from_pretrained(
+    output_dir, device_map="auto", torch_dtype=torch.bfloat16
+)
+# Merge the LoRA layers with the base model
+model = model.merge_and_unload()
+
+# Save fine-tuned model at a new location
+output_merged_dir = "results_final_checkpoint"
+os.makedirs(output_merged_dir, exist_ok=True)
+model.save_pretrained(output_merged_dir, safe_serialization=True)
+
+# Save tokenizer for easy inference
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer.save_pretrained(output_merged_dir)
