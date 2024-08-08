@@ -52,23 +52,9 @@ model_name = "meta-llama/Meta-Llama-3.1-8B"
 # bitsandbytes parameters
 ################################################################################
 
-# Activate 4-bit precision base model loading
-load_in_4bit = True
-
-# Activate nested quantization for 4-bit base models (double quantization)
-bnb_4bit_use_double_quant = True
-
-# Quantization type (fp4 or nf4)
-bnb_4bit_quant_type = "nf4"
-
-# Compute data type for 4-bit base models
-bnb_4bit_compute_dtype = torch.bfloat16
-
 # Load model from Hugging Face Hub with model name and bitsandbytes configuration
 
-bnb_config = create_bnb_config(
-    load_in_4bit, bnb_4bit_use_double_quant, bnb_4bit_quant_type, bnb_4bit_compute_dtype
-)
+bnb_config = create_bnb_config()
 
 model, tokenizer = load_model(model_name, bnb_config)
 
