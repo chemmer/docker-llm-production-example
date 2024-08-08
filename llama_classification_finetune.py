@@ -35,7 +35,7 @@ def load_model(model_name, bnb_config):
         quantization_config=bnb_config,
         device_map="auto",
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     return model, tokenizer
 
@@ -256,9 +256,12 @@ def fine_tune(model, tokenizer, dataset):
     model = prepare_model_for_kbit_training(model)
 
     peft_config = LoraConfig(
-        r=64,  # Increase LoRA rank for better performance
+        r=64,
         lora_alpha=128,
-        target_modules=find_all_linear_names(model),
+        target_modules=[
+            "q_proj",
+            "v_proj",
+        ],  # Explicitly specify target modules for Llama
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM",
@@ -269,15 +272,15 @@ def fine_tune(model, tokenizer, dataset):
         model=model,
         train_dataset=dataset,
         args=TrainingArguments(
-            per_device_train_batch_size=4,  # Increase batch size
+            per_device_train_batch_size=4,
             gradient_accumulation_steps=8,
             warmup_steps=100,
-            max_steps=1000,  # Increase number of training steps
+            max_steps=1000,
             learning_rate=1e-4,
             fp16=True,
             logging_steps=10,
             output_dir="./results",
-            optim="adamw_8bit",
+            optim="adamw_torch",
         ),
         data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
     )
@@ -285,7 +288,7 @@ def fine_tune(model, tokenizer, dataset):
     model.config.use_cache = False
     trainer.train()
 
-    return trainer
+    return trainer, model
 
 
 ################################################################################
@@ -348,7 +351,7 @@ dataset = load_dataset(
 )
 preprocessed_dataset = preprocess_dataset(tokenizer, get_max_length(model), 33, dataset)
 
-trainer = fine_tune(model, tokenizer, preprocessed_dataset)
+trainer, model = fine_tune(model, tokenizer, preprocessed_dataset)
 
 # Load fine-tuned weights
 model = AutoPeftModelForCausalLM.from_pretrained(
