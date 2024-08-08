@@ -23,10 +23,9 @@ import bitsandbytes as bnb
 
 def create_bnb_config():
     return BitsAndBytesConfig(
-        load_in_8bit=True,  # Change to 8-bit quantization
-        bnb_8bit_use_double_quant=True,
-        bnb_8bit_quant_type="nf8",
-        bnb_8bit_compute_dtype=torch.float16,
+        load_in_8bit=True,
+        llm_int8_threshold=6.0,
+        llm_int8_has_fp16_weight=False,
     )
 
 
