@@ -23,9 +23,10 @@ import bitsandbytes as bnb
 
 def create_bnb_config():
     return BitsAndBytesConfig(
-        load_in_8bit=True,
-        llm_int8_threshold=6.0,
-        llm_int8_has_fp16_weight=False,
+        load_in_4bit=True,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
     )
 
 
@@ -74,21 +75,18 @@ def create_prompt_formats(sample):
     # Initialize static strings for the prompt template
     INTRO_BLURB = "Below is an instruction that describes a task. Write a response that appropriately completes the request."
     INSTRUCTION_KEY = "### Instruction:"
-    INPUT_KEY = "Input:"
+    INPUT_KEY = "### Input:"
     RESPONSE_KEY = "### Response:"
     END_KEY = "### End"
 
     # Combine a prompt with the static strings
-    blurb = f"{INTRO_BLURB}"
     instruction = f"{INSTRUCTION_KEY}\n{sample['instruction']}"
-    input_context = f"{INPUT_KEY}\n{sample['input']}" if sample["input"] else None
+    input_context = f"{sample['input']}"
     response = f"{RESPONSE_KEY}\n{sample['output']}"
     end = f"{END_KEY}"
 
     # Create a list of prompt template elements
-    parts = [
-        part for part in [blurb, instruction, input_context, response, end] if part
-    ]
+    parts = [part for part in [instruction, input_context, response, end] if part]
 
     # Join prompt template elements into a single string to create the prompt template
     formatted_prompt = "\n\n".join(parts)
@@ -317,30 +315,6 @@ task_type = "CAUSAL_LM"
 # Output directory where the model predictions and checkpoints will be stored
 output_dir = "./results"
 
-# Batch size per GPU for training
-per_device_train_batch_size = 1
-
-# Number of update steps to accumulate the gradients for
-gradient_accumulation_steps = 4
-
-# Initial learning rate (AdamW optimizer)
-learning_rate = 2e-4
-
-# Optimizer to use
-optim = "paged_adamw_32bit"
-
-# Number of training steps (overrides num_train_epochs)
-max_steps = 20
-
-# Linear warmup steps from 0 to learning_rate
-warmup_steps = 2
-
-# Enable fp16/bf16 training (set bf16 to True with an A100)
-fp16 = True
-
-# Log every X updates steps
-logging_steps = 1
-
 # Main execution
 model_name = "meta-llama/Meta-Llama-3.1-8B"
 bnb_config = create_bnb_config()
@@ -355,7 +329,7 @@ trainer, model = fine_tune(model, tokenizer, preprocessed_dataset)
 
 # Load fine-tuned weights
 model = AutoPeftModelForCausalLM.from_pretrained(
-    output_dir, device_map="auto", torch_dtype=torch.bfloat16
+    output_dir, device_map="cpu", torch_dtype=torch.float32
 )
 # Merge the LoRA layers with the base model
 model = model.merge_and_unload()
