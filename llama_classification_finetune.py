@@ -75,18 +75,21 @@ def create_prompt_formats(sample):
     # Initialize static strings for the prompt template
     INTRO_BLURB = "Below is an instruction that describes a task. Write a response that appropriately completes the request."
     INSTRUCTION_KEY = "### Instruction:"
-    INPUT_KEY = "### Input:"
+    INPUT_KEY = "Input:"
     RESPONSE_KEY = "### Response:"
     END_KEY = "### End"
 
     # Combine a prompt with the static strings
+    blurb = f"{INTRO_BLURB}"
     instruction = f"{INSTRUCTION_KEY}\n{sample['instruction']}"
-    input_context = f"{sample['input']}"
+    input_context = f"{INPUT_KEY}\n{sample['input']}" if sample["input"] else None
     response = f"{RESPONSE_KEY}\n{sample['output']}"
     end = f"{END_KEY}"
 
     # Create a list of prompt template elements
-    parts = [part for part in [instruction, input_context, response, end] if part]
+    parts = [
+        part for part in [blurb, instruction, input_context, response, end] if part
+    ]
 
     # Join prompt template elements into a single string to create the prompt template
     formatted_prompt = "\n\n".join(parts)
@@ -254,8 +257,8 @@ def fine_tune(model, tokenizer, dataset):
     model = prepare_model_for_kbit_training(model)
 
     peft_config = LoraConfig(
-        r=64,
-        lora_alpha=128,
+        r=16,
+        lora_alpha=32,
         target_modules=[
             "q_proj",
             "v_proj",
@@ -274,7 +277,7 @@ def fine_tune(model, tokenizer, dataset):
             gradient_accumulation_steps=8,
             warmup_steps=100,
             max_steps=1000,
-            learning_rate=1e-4,
+            learning_rate=2e-4,
             fp16=True,
             logging_steps=10,
             output_dir="./results",
